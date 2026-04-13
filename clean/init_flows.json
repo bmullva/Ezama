@@ -1,0 +1,344 @@
+[
+    {
+        "id": "0c14ff671dbe21a9",
+        "type": "tab",
+        "label": "Virtual Links",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "c384410fdb810ed6",
+        "type": "tab",
+        "label": "Physical Links",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "Raspberry-localhost",
+        "type": "mqtt-broker",
+        "name": "Raspberry",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "sessionExpiry": ""
+    },
+    {
+        "id": "874680f7.b8abd",
+        "type": "mqtt-broker",
+        "name": "Raspberry",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "compatmode": false,
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "a54a0abf8ffd9177",
+        "type": "ui_base",
+        "theme": {
+            "name": "theme-light",
+            "lightTheme": {
+                "default": "#0094CE",
+                "baseColor": "#0094CE",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": true,
+                "reset": false
+            },
+            "darkTheme": {
+                "default": "#097479",
+                "baseColor": "#097479",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": false
+            },
+            "customTheme": {
+                "name": "Untitled Theme 1",
+                "default": "#4B7930",
+                "baseColor": "#4B7930",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+            },
+            "themeState": {
+                "base-color": {
+                    "default": "#0094CE",
+                    "value": "#0094CE",
+                    "edited": false
+                },
+                "page-titlebar-backgroundColor": {
+                    "value": "#0094CE",
+                    "edited": false
+                },
+                "page-backgroundColor": {
+                    "value": "#fafafa",
+                    "edited": false
+                },
+                "page-sidebar-backgroundColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "group-textColor": {
+                    "value": "#1bbfff",
+                    "edited": false
+                },
+                "group-borderColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "group-backgroundColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "widget-textColor": {
+                    "value": "#111111",
+                    "edited": false
+                },
+                "widget-backgroundColor": {
+                    "value": "#0094ce",
+                    "edited": false
+                },
+                "widget-borderColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "base-font": {
+                    "value": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+                }
+            },
+            "angularTheme": {
+                "primary": "indigo",
+                "accents": "blue",
+                "warn": "red",
+                "background": "grey",
+                "palette": "light"
+            }
+        },
+        "site": {
+            "name": "Node-RED Dashboard",
+            "hideToolbar": "false",
+            "allowSwipe": "false",
+            "lockMenu": "false",
+            "allowTempTheme": "true",
+            "dateFormat": "DD/MM/YYYY",
+            "sizes": {
+                "sx": 48,
+                "sy": 48,
+                "gx": 6,
+                "gy": 6,
+                "cx": 6,
+                "cy": 6,
+                "px": 0,
+                "py": 0
+            }
+        }
+    },
+    {
+        "id": "Switchesui_tab",
+        "type": "ui_tab",
+        "name": "Switches",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "Gaugesui_tab",
+        "type": "ui_tab",
+        "name": "Gauges",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "e87f087f207557ad",
+        "type": "ui_tab",
+        "name": "SYSTEM",
+        "icon": "dashboard",
+        "order": 3,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "a94d064bedfe2515",
+        "type": "ui_group",
+        "name": "Information",
+        "tab": "e87f087f207557ad",
+        "order": 5,
+        "disp": true,
+        "width": "8",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "1787b017cceb63e8",
+        "type": "inject",
+        "z": "Virtual Links",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "10",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "10",
+        "topic": "/system/broadcast",
+        "payload": "ping",
+        "payloadType": "str",
+        "x": 130,
+        "y": 40,
+        "wires": [
+            [
+                "8178ad9c416ebe1a"
+            ]
+        ]
+    },
+    {
+        "id": "8178ad9c416ebe1a",
+        "type": "mqtt out",
+        "z": "Virtual Links",
+        "name": "",
+        "topic": "/system/broadcast",
+        "qos": "2",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "874680f7.b8abd",
+        "x": 320,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "ce8f3b7c05404ecf",
+        "type": "inject",
+        "z": "Virtual Links",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            },
+            {
+                "p": "time",
+                "v": "",
+                "vt": "date"
+            }
+        ],
+        "repeat": "10",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "10",
+        "topic": "/system/reporting",
+        "payload": "{\"device_id\":\"node-red\"}",
+        "payloadType": "json",
+        "x": 100,
+        "y": 80,
+        "wires": [
+            [
+                "19dcc764554993d4"
+            ]
+        ]
+    },
+    {
+        "id": "b2226863a2c2a788",
+        "type": "mqtt out",
+        "z": "Virtual Links",
+        "name": "",
+        "topic": "/system/reporting",
+        "qos": "2",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "874680f7.b8abd",
+        "x": 420,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "19dcc764554993d4",
+        "type": "moment",
+        "z": "Virtual Links",
+        "name": "",
+        "topic": "/system/reporting",
+        "input": "time",
+        "inputType": "msg",
+        "inTz": "America/Los_Angeles",
+        "adjAmount": "0",
+        "format": "LLL",
+        "locale": "en-US",
+        "output": "payload.time",
+        "outputType": "msg",
+        "outTz": "America/Los_Angeles",
+        "x": 260,
+        "y": 80,
+        "wires": [
+            [
+                "b2226863a2c2a788"
+            ]
+        ]
+    },
+    {
+        "id": "a1b2c3d4e5f67890",
+        "type": "function",
+        "z": "c384410fdb810ed6",
+        "name": "Filter On/Off",
+        "func": "// Filter incoming messages: only pass through if payload is \"on\", \"off\", or \"click\"\nvar allowedValues = [\"on\", \"off\", \"click\"];\n\nif (allowedValues.indexOf(msg.payload) !== -1) {\n    // Match found: pass the message through unchanged\n    return msg;\n} else {\n    // No match: discard silently (no output)\n    return null;\n}",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 250,
+        "y": 20,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "94deb4662a822151",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-dashboard": "3.6.6",
+            "node-red-contrib-moment": "5.0.0"
+        }
+    }
+]
