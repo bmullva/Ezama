@@ -64,7 +64,6 @@ payloads:
 import RPi.GPIO as GPIO
 import time
 import json
-import re
 import netifaces
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import CallbackAPIVersion
@@ -116,7 +115,6 @@ MQTT_PORT = 1883
 MQTT_TOPIC_LIGHT = f"/lights/{DEVICE_ID}/+/command"
 MQTT_TOPIC_BROADCAST = "/system/broadcast"
 MQTT_TOPIC_REPORTING = "/system/reporting"
-MQTT_TOPIC_DUAL = f"/lights/{DEVICE_ID}/dual/command"
 
 # Light states (size 13 to handle L1-L12, index 0 unused)
 onOff = [0] * (LIGHT_CIRCUITS + 1)
@@ -153,7 +151,6 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
         client.subscribe(MQTT_TOPIC_LIGHT)
         client.subscribe(MQTT_TOPIC_BROADCAST)
-        client.subscribe(MQTT_TOPIC_DUAL)
     else:
         logging.error(f"Connection failed: {reason_code}")
 
@@ -163,8 +160,6 @@ def on_message(client, userdata, msg, properties=None):
     logging.info(f"Received message on {topic}: {payload}")
     if topic == MQTT_TOPIC_BROADCAST and payload == "ping":
         send_ping_response()
-    elif topic == MQTT_TOPIC_DUAL:
-        handle_dual_temp_command(payload)
     elif topic.startswith(f"/lights/{DEVICE_ID}/"):
         try:
             light_id_str = topic.split("/")[-2][1:]  # Extract light number string (e.g., '1' from 'L1')
@@ -197,21 +192,6 @@ def get_ip_address():
             pass
     logging.warning("Could not get IP from eth0 or wlan0, defaulting to 127.0.0.1")
     return "127.0.0.1"
-
-def handle_dual_temp_command(payload):
-    global DUAL_TEMP_LIGHTS
-    try:
-        new_val = max(0, min(6, int(payload)))
-        DUAL_TEMP_LIGHTS = new_val
-        CONFIG["lights"]["dual_temp"] = new_val
-        with open(__file__, 'r') as f:
-            content = f.read()
-        new_content = re.sub(r'("dual_temp"\s*:\s*)\d+', lambda m: f'{m.group(1)}{new_val}', content)
-        with open(__file__, 'w') as f:
-            f.write(new_content)
-        logging.info(f"Updated dual_temp to {new_val}")
-    except Exception as e:
-        logging.error(f"Failed to handle dual_temp command '{payload}': {e}")
 
 def handle_light_command(light_id, command):
     if not (1 <= light_id <= LIGHT_CIRCUITS):
@@ -281,8 +261,8 @@ def update_light_pwm(light_id):
     if is_dual_temp(light_id):
         pwm_6500K = int(onOff[light_id] * (brightness[light_id] / 100.0) * (temperature[light_id] / 255.0) * 65535)
         pwm_2700K = int(onOff[light_id] * (brightness[light_id] / 100.0) * ((255 - temperature[light_id]) / 255.0) * 65535)
-        pca.channels[light_id].duty_cycle = pwm_6500K
-        pca.channels[light_id + 1].duty_cycle = pwm_2700K
+        pca.channels[light_id].duty_cycle = pwm_2700K
+        pca.channels[light_id + 1].duty_cycle = pwm_6500K
         logging.debug(f"Updated dual light {light_id}: 6500K PWM={pwm_6500K}, 2700K PWM={pwm_2700K}")
     else:
         pwm = int(onOff[light_id] * (brightness[light_id] / 100.0) * 65535)

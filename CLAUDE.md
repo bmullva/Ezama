@@ -1,212 +1,305 @@
-# Project: Ezama
+# Ezama Home Automation — Project Reference
 
-## Overview
-Home automation / IoT project running on a Raspberry Pi. Controls lights (including dual-color-temperature LED pairs), on/off valves, and floor heaters; collects sensor data. All devices communicate over MQTT. Node-RED provides the dashboard and flow logic; Python scripts on the Pi handle hardware I/O and dynamic Node-RED configuration.
+This is a Raspberry Pi home automation system controlling lights (including dual-color-temperature LED pairs), valves, and floor heaters, and reading from sensors.
+
+The Pi's `/home/pi/` home directory is mounted at `E:\` via SSHFS, giving access to the whole home folder. **The project folder of interest is `E:\Ezama\` (`/home/pi/Ezama/`).** The only other file outside that folder that is relevant to this project is `~/.node-red/flows.json`, accessible at `E:\.node-red\flows.json` — this is the live Node-RED configuration that the Python scripts read and write. Everything else under `E:\` (Desktop, Downloads, rpi-clone, logs, etc.) can be ignored.
+
+---
+
+## Critical Rules
+
+> **ALWAYS back up any file before editing it.**
+> ```bash
+> cp <file> <file>.bak.$(date +%Y%m%d_%H%M%S)
+> ```
+
+- **NEVER touch `~/.node-red/flows.json` without backing it up first.** Both `auto_config.py` and `EzamaRaspiConfig.py` overwrite it without warning. A mistake here could leave heaters running, valves open, or lights stuck on/off in a real home.
+- **`EzamaRaspiConfig.py` performs surgical Node-RED edits — use with CAUTION.** It adds/removes only the nodes for the lights being converted between single and dual-temp mode. It does NOT wipe flows.json. Wiring to even-numbered lights being converted to dual WILL be deleted (accepted and expected).
+- **`rpi_switch_light_mqtt2.py` is always running as a service.** Editing the file on disk has no effect until the service is restarted:
+  ```bash
+  sudo systemctl restart <service-name>   # check /etc/systemd/system/ for exact unit name
+  ```
+  Similarly, `auto_config.py` starts at reboot via crontab and must be restarted if changed.
+- **`rpi_switch_light_mqtt2.py` self-modifies its own source file** to persist `dual_temp` changes via regex. Do not restructure the CONFIG dict or rename the `"dual_temp"` key or the self-write silently breaks.
+- **Before flashing firmware**, verify the device IP, the correct `.bin` for the device type, and that `NEW_DEVICE_ID` (for `initialize_WT32-2`) is set correctly before uploading.
 
 ---
 
 ## Folder Structure
 
-| Path | Purpose |
-|---|---|
-| `/home/pi/Ezama/` | Main Python scripts and utilities |
-| `/home/pi/Ezama/clean/` | Clean starting-point flows (`init_flows.json`) |
-| `/home/pi/Ezama/arduino/` | Compiled `.bin` firmware for WT32-ETH01 ethernet devices |
-| `/home/pi/.node-red/flows.json` | **LIVE** Node-RED flows — handle with extreme care |
-| `/home/pi/Ezama/NODE/nodered.db` | Node-RED SQLite DB |
-
----
-
-## Python Scripts
-
-### `EzamaRaspiConfig.py` — Interactive System Reset / Reconfiguration Tool
-Run manually (not at boot). Prompts the operator for the number of **dual-temperature light pairs** (0–6), then:
-1. Patches the `"dual_temp"` value inside `rpi_switch_light_mqtt2.py`.
-2. Kills and restarts `rpi_switch_light_mqtt2.py` (logs to `mqtt_script.log`).
-3. Copies `init_flows.json` over the live `~/.node-red/flows.json`.
-4. Restarts Node-RED via `systemctl`.
-
-**Warning:** This obliterates the current Node-RED configuration. It prompts for `yes` confirmation before acting.
-
----
-
-### `auto_config.py` — Auto Device Discovery / Node-RED Flow Populator
-Started `@reboot` via crontab. Runs indefinitely.
-
-Subscribes to the MQTT topic `/system/reporting`. When a new device announces itself (JSON payload), this script automatically adds the necessary Node-RED nodes to `flows.json` and restarts Node-RED — so devices appear in the dashboard without manual flow editing.
-
-**What it adds per device type:**
-
-- **Lights** (`/lights/<device_id>/L<n>/command`):
-  - Virtual Links tab: toggle button, brightness slider (5–100), optional color-temperature slider (0–255) for dual-temp pairs, function nodes, and `mqtt out`.
-  - Physical Links tab: `Interpret` function (state machine — on/off/click/set_brightness/set_temperature/start_\*/stop), 50 ms `inject` loop node, `Increment` function (ramps brightness/temperature for continuous actions), and `mqtt out` with `retain=true`.
-  - Dual-temperature logic: pairs are assigned from the highest light indices downward (e.g., L11+L12 for one pair). The lower index (L11) gets the full UI; the higher (L12) is skipped in the UI and driven by the same command.
-
-- **Switches** (`/switches/<device_id>/S<n>/action`):
-  - Physical Links tab: `mqtt in` nodes, unwired (ready for Node-RED wiring to lights or other actions).
-
-- **Sensors** (`/sensors/<device_id>/<type>/data[/<field>]`):
-  - Virtual Links tab: `mqtt in` node wired to a `ui_gauge` per field.
-
-Duplicate detection prevents re-adding existing devices. Errors logged to `/home/pi/node_red_errors.log`.
-
-**Key constants (fixed in source):**
-- MQTT broker: `127.0.0.1:1883`
-- Virtual Links tab ID: `0c14ff671dbe21a9`
-- Physical Links tab ID: `c384410fdb810ed6`
-
----
-
-### `rpi_switch_light_mqtt2.py` — Raspberry Pi Light + Switch Controller
-Started `@reboot` via crontab. Runs indefinitely.
-
-Controls up to **12 light circuits** via a PCA9685 PWM driver (I²C: SCL=GPIO 3, SDA=GPIO 2) and reads **32 momentary buttons** via two 74HC4067 16-channel multiplexers (select pins GPIO 20–23; mux outputs GPIO 26 and 27, active-low with internal pull-ups).
-
-**Button behavior (state machine: IDLE → PRESSED → CLICKED/HOLDING):**
-- Even buttons (0, 2, …): "off" side — click sends `off`, hold sends `start_dim`, click-then-hold sends `start_cool`, release sends `stop`.
-- Odd buttons (1, 3, …): "on" side — click sends `on`, hold sends `start_brighten`, click-then-hold sends `start_heat`, release sends `stop`.
-- Click is defined as press < 400 ms; hold ≥ 400 ms; click-then-hold requires second press within 500 ms of first release.
-- Debounce period: 50 ms.
-
-**Light PWM:**
-- Single-temperature: `PWM = (brightness/100) × 65535 × on_off`
-- Dual-temperature (last `dual_temp` pairs from L12 downward): L(odd) drives 6500K channel, L(even) drives 2700K channel.
-  - `PWM_6500K = on_off × (brightness/100) × (temperature/255) × 65535`
-  - `PWM_2700K = on_off × (brightness/100) × ((255−temperature)/255) × 65535`
-  - Temperature 0 = full warm (2700K), 255 = full cool (6500K).
-
-**MQTT topics:**
-- Subscribes: `/lights/RPi1/+/command` (JSON `{on_off, brightness, temperature}` or string commands), `/system/broadcast` (ping).
-- Publishes: `/switches/RPi1/S<n>/action` (switch events), `/system/reporting` (ping response with device capabilities).
-
-**Configuration** (top of file, edited by `EzamaRaspiConfig.py`):
-```json
-{
-  "device_id": "RPi1",
-  "version": "1.0",
-  "lights": {"count": 12, "dual_temp": 2},
-  "switches": 16,
-  "sensors": []
-}
-```
-
-Logs to `app.log`. Reconnects to MQTT indefinitely on failure. GPIO cleanup on exit.
-
----
-
-### `restart.sh` — Daily Reboot Script
-One line: `sudo reboot`. Run ~once per day via crontab to reset the system.
-
----
-
-### `espota.py` — OTA Firmware Uploader
-Standard Arduino ESP OTA tool (community script). Pushes a compiled `.bin` firmware file to a WT32-ETH01 device over ethernet:
-```bash
-python3 espota.py -i <ESP_IP> -I <Host_IP> -p <ESP_port> -P <Host_port> -f <sketch.bin>
-```
-Use this to deploy updated firmware from the `arduino/` folder to devices on the network.
-
----
-
-## Arduino Firmware (WT32-ETH01 Devices)
-
-All `.bin` files in `arduino/` are compiled ESP-IDF / Arduino firmware for the **WT32-ETH01** (ESP32 + LAN8720 ethernet). All devices:
-- Connect via wired ethernet (no Wi-Fi).
-- Use a local MQTT broker at `127.0.0.1:1883`.
-- Respond to a `ping` message on `/system/broadcast` by publishing their capabilities JSON to `/system/reporting` (which `auto_config.py` listens to).
-- Support OTA updates via `espota.py`.
-- Store `DEVICE_ID` in EEPROM (falls back to a default if EEPROM is invalid).
-
-### `WT32Hub1.2.ino.wt32-eth01.bin` — Light + Switch Hub (main controller device)
-The most complex firmware. Mirrors the behavior of `rpi_switch_light_mqtt2.py` but runs on a standalone WT32-ETH01 board instead of the Raspberry Pi. Manages:
-- **Lights**: PWM-controlled LED channels with brightness (5–100%) and color temperature (0–255 where 0=warm/2700K, 255=cool/6500K). Supports dual-temperature paired channels. `DUAL_TEMP_LIGHTS` is configurable and stored in EEPROM (updated live via MQTT).
-- **Switches/buttons**: Reads physical buttons and publishes actions (`on`, `off`, `click`, `start_brighten`, `start_dim`, `start_cool`, `start_heat`, `stop`) to `/switches/<device_id>/S<n>/action`.
-- **MQTT commands** subscribed on `/lights/<device_id>/+/command`: accepts both atomic JSON `{on_off, brightness, temperature}` and legacy string commands (`on`, `off`, `click`, `set_brightness <n>`, `set_temperature <n>`, `start_*`, `stop`). Commands to the "even" channel of a dual-temp pair are silently ignored (the odd/lower channel controls the pair).
-- **Continuous actions** (brighten/dim/heat/cool) use a 50 ms loop — identical architecture to the Node-RED Physical Links increment logic.
-- **Ping response** on `/system/reporting` includes lights count, dual_temp, switches count, sensors list.
-- **Debug** output to `/system/debug`.
-
-### `EthDS18B20-1.2.ino.wt32-eth01.bin` — DS18B20 Digital Temperature Sensor
-Reads one or more **Dallas DS18B20** 1-Wire digital temperature sensors. Publishes temperature readings in °C to:
-```
-/sensors/<device_id>/DS18B20/data
-```
-Field name: `temperature_c`. Logs an error if the sensor is disconnected or fails to read.
-
-### `EthJSNSR04T-1.1.ino.wt32-eth01.bin` / `EthJSNSR04T-1.2.ino.wt32-eth01.bin` — JSN-SR04T Waterproof Ultrasonic Water Level Sensor
-Reads a **JSN-SR04T** waterproof ultrasonic sensor (typically mounted above a water tank or vessel) and publishes the measured distance to the water surface in centimeters to:
-```
-/sensors/<device_id>/JSNS-SR04T/data
-```
-Field name: `distance_to_water_cm`. Two versions exist (1.1 and 1.2 — use 1.2 unless a specific device requires 1.1).
-
-### `EthMotionSensor-1.2.ino.wt32-eth01.bin` — RCWL-0516 Microwave Motion Sensor
-Reads an **RCWL-0516** microwave radar motion detector. When motion state changes, publishes to:
-```
-/switches/<device_id>/S1/action
-```
-Reports state changes (e.g., detected / not detected). Integrated into the switch infrastructure so Node-RED can wire motion events to lights or other actions the same way physical switch presses are wired.
-
-### `EthNTC10K-1.2.ino.wt32-eth01.bin` — NTC 10K Thermistor Temperature Sensor
-Reads an analog **NTC 10 kΩ thermistor** (common for floor/room temperature measurement). Publishes temperature in °C to:
-```
-/sensors/<device_id>/NTC10K/data
-```
-Field name: `temperature_c`. Suitable for floor heating temperature feedback.
+| Path (on Pi) | Path (SSHFS) | Purpose |
+|---|---|---|
+| `/home/pi/Ezama/` | `E:\Ezama\` | **Project root** — Python scripts and utilities |
+| `/home/pi/Ezama/firmware/` | `E:\Ezama\firmware\` | Arduino firmware — each subdirectory contains `.ino` source and compiled `.bin` |
+| `/home/pi/Ezama/firmware/WT32Hub1.2/` | `E:\Ezama\firmware\WT32Hub1.2\` | Main light+switch hub firmware |
+| `/home/pi/Ezama/firmware/EthDS18B20-1.2/` | `E:\Ezama\firmware\EthDS18B20-1.2\` | DS18B20 digital temperature sensor firmware |
+| `/home/pi/Ezama/firmware/EthJSNSR04T-1.2/` | `E:\Ezama\firmware\EthJSNSR04T-1.2\` | JSN-SR04T waterproof ultrasonic water-level sensor firmware |
+| `/home/pi/Ezama/firmware/EthNTC10K-1.2/` | `E:\Ezama\firmware\EthNTC10K-1.2\` | NTC 10K thermistor temperature sensor firmware |
+| `/home/pi/Ezama/firmware/EthMotionSensor-1.2/` | `E:\Ezama\firmware\EthMotionSensor-1.2\` | RCWL-0516 microwave motion sensor firmware |
+| `/home/pi/Ezama/firmware/initialize_WT32-2/` | `E:\Ezama\firmware\initialize_WT32-2\` | One-time EEPROM device ID writer — used to provision new WT32 devices |
+| `/home/pi/Ezama/clean/` | `E:\Ezama\clean\` | `init_flows.json` — clean baseline Node-RED flows used by the reset tool |
+| `/home/pi/Ezama/NODE/` | `E:\Ezama\NODE\` | `nodered.db` — Node-RED SQLite database |
+| `/home/pi/.node-red/flows.json` | `E:\.node-red\flows.json` | **LIVE** Node-RED flows — the only relevant file outside `E:\Ezama\` |
 
 ---
 
 ## System Architecture
 
+All components communicate through a local MQTT broker (Mosquitto). The Pi scripts connect to `127.0.0.1:1883`. WT32 devices use `192.168.99.1:1883` (with fallbacks to `192.168.99.10` and `192.168.6.97` in sensor firmware). Node-RED provides the web dashboard UI and the switch-to-light state logic.
+
 ```
-Physical world
-    │
-    ├── Buttons/switches ──────────────────────────┐
-    ├── WT32-ETH01 Hub (lights + switches)          │  MQTT /switches/.../action
-    ├── WT32-ETH01 DS18B20 (temp)                  │  MQTT /sensors/.../data
-    ├── WT32-ETH01 JSN-SR04T (water level)         │  MQTT /sensors/.../data
-    ├── WT32-ETH01 NTC10K (floor temp)             │  MQTT /sensors/.../data
-    ├── WT32-ETH01 Motion (RCWL-0516)              │  MQTT /switches/.../action
-    └── RPi GPIO (lights + buttons via PCA9685)    │
-                                                    ▼
-                                        Mosquitto MQTT broker (127.0.0.1:1883)
-                                                    │
-                         ┌──────────────────────────┤
-                         │                          │
-                 auto_config.py              Node-RED flows.json
-                 (populates flows              (dashboard UI,
-                  for new devices)             switch→light logic,
-                                               Physical Links loops)
-                                                    │
-                                        rpi_switch_light_mqtt2.py
-                                        (PWM light output on Pi,
-                                         button scanning on Pi)
+Physical buttons
+    | GPIO via two 74HC4067 muxes
+    v
+rpi_switch_light_mqtt2.py  (always running on Pi)
+    | publishes /switches/RPi1/Sx/action
+    v
+Node-RED — {device_id} Physical tab flows  (generated by auto_config.py)
+    | Interpret function  (maintains per-light state in flow context)
+    | 50ms Inject Loop + Increment function  (smooth dim/brighten/heat/cool)
+    | publishes /lights/RPi1/Lx/command  (retained JSON state)
+    v
+rpi_switch_light_mqtt2.py  (subscribed)
+    | updates PCA9685 PWM channels (I2C)
+    v
+Physical lights (up to 12 circuits, single or dual-temp CCT)
+
+WT32Hub1.2 devices  (same MQTT topic structure as RPi, independent devices)
+    | publishes /switches/{device_id}/Sx/action
+    | subscribes /lights/{device_id}/+/command
+    | drives own PCA9685 PWM channels
+
+Node-RED Dashboard UI ({device_id} Virtual tab flows, also generated by auto_config.py)
+    Sliders/Buttons -> publish /lights/{device_id}/Lx/command -> same path above
+
+Auto-discovery:
+    ping on /system/broadcast
+    -> rpi_switch_light_mqtt2.py (and all WT32 devices) publish config to /system/reporting
+    -> auto_config.py injects new Node-RED flow nodes -> restarts Node-RED
+
+WT32 sensor devices:
+    DS18B20   -> /sensors/{device_id}/DS18B20/data     (temperature in C, every 6s)
+    JSN-SR04T -> /sensors/{device_id}/jsn-sr04t/data   (distance to water in cm, every 5s)
+    NTC10K    -> /sensors/{device_id}/ntc/data          (temperature in C)
+    Motion    -> /switches/{device_id}/S1/action        ("on"/"off" on change + every 6s)
 ```
 
 ---
 
-## Device Notes
-- WT32-ETH01 = ESP32 + LAN8720 wired ethernet. No Wi-Fi used.
-- Firmware flashed via `espota.py` over ethernet (OTA).
-- `device_id` stored in EEPROM on each device; verify before deploying duplicate IDs.
+## MQTT Topics
+
+| Topic | Direction | Publisher | Subscriber | Payload |
+|---|---|---|---|---|
+| `/lights/{device_id}/{Lx}/command` | dashboard/Node-RED -> lights | Node-RED Physical/Virtual flows | `rpi_switch_light_mqtt2.py`, WT32 Hub | JSON `{"on_off","brightness","temperature"}` or string: `on`, `off`, `click`, `set_brightness <5-100>`, `set_temperature <0-255>` |
+| `/lights/{device_id}/dual/command` | config tool -> driver | `EzamaRaspiConfig.py` or manual | `rpi_switch_light_mqtt2.py`, WT32 Hub | integer string `0`-`6` (number of dual-temp pairs) |
+| `/switches/{device_id}/{Sx}/action` | buttons -> Node-RED | `rpi_switch_light_mqtt2.py`, WT32 Hub, Motion sensor | Node-RED Physical flows | `on`, `off`, `start_brighten`, `start_dim`, `start_heat`, `start_cool`, `stop` |
+| `/system/broadcast` | system -> all | Any | All Pi scripts and WT32 devices | `ping` (triggers reporting), `restart` (reboots device after 10s), `reset` (clears EEPROM + reboots) |
+| `/system/reporting` | device -> configurator | `rpi_switch_light_mqtt2.py`, all WT32 devices | `auto_config.py` | JSON device capability report |
+| `/sensors/{device_id}/DS18B20/data` | sensor -> dashboard | EthDS18B20 | Node-RED gauge | temperature in degrees C |
+| `/sensors/{device_id}/jsn-sr04t/data` | sensor -> dashboard | EthJSNSR04T | Node-RED gauge | distance to water surface in cm (`-1` = invalid) |
+| `/sensors/{device_id}/ntc/data` | sensor -> dashboard | EthNTC10K | Node-RED gauge | temperature in degrees C |
+| `/system/debug` | device -> diagnostics | WT32 Hub | (optional listener) | debug strings |
+| `/debug/{device_id}/test` | sensor -> diagnostics | EthJSNSR04T | (optional listener) | JSON debug info during startup test phases |
 
 ---
 
-## Critical Rules for Claude
+## Python Scripts
 
-1. **ALWAYS backup before editing anything:**
-   ```bash
-   cp /home/pi/.node-red/flows.json /home/pi/.node-red/flows.json.bak.$(date +%Y%m%d_%H%M%S)
-   ```
+### `rpi_switch_light_mqtt2.py` — Hardware Driver (always running)
 
-2. **`flows.json` is LIVE** — a mistake here could leave heaters running, valves open, or lights stuck on/off in a real home.
+**Inputs (buttons -> MQTT):**
+- Scans 32 momentary buttons via two 74HC4067 muxes every 50ms (select: GPIO20-23; outputs: GPIO26 buttons 0-15, GPIO27 buttons 16-31; active-low with internal pull-ups)
+- 4-state machine per button: `IDLE -> PRESSED -> CLICKED / HOLDING`
+- Even buttons: off/dim/cool side. Odd buttons: on/brighten/heat side.
+- Short click (<400ms) -> `on`/`off`; hold (>=400ms) -> `start_brighten`/`start_dim`; click-then-hold (within 500ms) -> `start_heat`/`start_cool`; release -> `stop`
+- Publishes to `/switches/RPi1/Sx/action`
 
-3. **Never push untested logic to live `flows.json`** — test using `clean/init_flows.json` first, then migrate carefully.
+**Outputs (MQTT -> PWM lights):**
+- Subscribes to `/lights/RPi1/+/command`
+- Drives PCA9685 (I2C: SCL=GPIO3, SDA=GPIO2) at 1000Hz, **16-bit range (0-65535)**, channels 1-12
+- Accepts JSON `{"on_off","brightness","temperature"}` (atomic update) or legacy string commands
+- Single-temp: `PWM = (brightness/100) * 65535 * onOff`
+- Dual-temp: `PWM_6500K = onOff * (b/100) * (temp/255) * 65535`; `PWM_2700K = onOff * (b/100) * ((255-temp)/255) * 65535`
+- **Temperature: 0 = 2700K full (low Kelvin), 255 = 6500K full (high Kelvin)**
+- **Kelvin language note:** Ben uses Kelvin values literally � higher K = "warmer" in his language. 6500K is "warmer" than 2700K. This is opposite to retail/vernacular usage where 2700K = "warm white". Odd channel (e.g. L11) drives 2700K; even channel (e.g. L12) drives 6500K.
 
-4. **Before changing Python scripts**, check how the change affects MQTT topics and Node-RED flow expectations — the Pi scripts and flows are tightly coupled.
+**Configuration (top of file):**
+```python
+CONFIG = {
+    "device_id": "RPi1",
+    "version": "1.0",
+    "lights": {"count": 12, "dual_temp": 2},
+    "switches": 16,
+    "sensors": []
+}
+```
 
-5. **Before flashing new firmware**, verify the device IP, confirm the correct `.bin` file for the device type, and note which device it targets.
+**Self-modifying:** Receiving on `/lights/RPi1/dual/command` (integer 0-6) updates `dual_temp` in memory immediately and rewrites the CONFIG block in its own source file via regex so the new value survives reboot. The regex matches `"dual_temp"\s*:\s*\d+` — do not reformat that line.
 
-6. **`restart.sh` reboots the whole Pi** — this drops all MQTT connections momentarily and restarts all `@reboot` cron services.
+**Ping:** Responds to `ping` on `/system/broadcast` by publishing device config JSON to `/system/reporting`.
 
-7. **`EzamaRaspiConfig.py` destroys current flows** — never run it unless a full reset is intended.
+Logs to `app.log`. Reconnects to MQTT indefinitely. GPIO cleanup on exit.
+
+---
+
+### `auto_config.py` — Node-RED Auto-Configurator (always running)
+
+Listens on `/system/reporting`. When a previously unseen `device_id` appears it generates Node-RED flow nodes and injects them into `~/.node-red/flows.json`, then restarts Node-RED.
+
+**Generates per device:**
+
+*Virtual Links tab (dashboard UI):*
+- `ui_button` (toggle), `ui_slider` (brightness 5-100), `ui_slider` (temperature 0-255 step 5, dual-temp only), `ui_gauge` (per sensor field), `mqtt out` nodes
+
+*Physical Links tab (state logic):*
+- **Interpret** function — maintains `{on_off, brightness, temperature}` state per light in Node-RED flow context; publishes retained JSON state back to `/lights/.../command`
+- **50ms Inject Loop** + **Increment** function — drives smooth continuous brightness/temperature changes on `start_*` actions
+- `mqtt in` nodes for each switch (unwired — user wires in Node-RED editor)
+
+**Tab management (per-device, dynamic):**
+
+- Creates `{device_id} Virtual` and `{device_id} Physical` canvas tabs in Node-RED for each new hub device.
+- Creates a shared `Sensors` canvas tab for sensor-only devices.
+- Tab IDs are generated at runtime (not hardcoded). Tabs are found by label name, stable once created.
+- Light control dashboard nodes go in the `Switches` dashboard tab (`Switchesui_tab`).
+- Sensor gauge nodes go in the `Gauges` dashboard tab (`Gaugesui_tab`).
+- System canvas tab (`system_tab_ezama`) holds infrastructure nodes from `init_flows.json`.
+
+**Pair spacing (critical for dual<->single conversion):**
+
+| Tab | Rows per pair | Layout |
+|---|---|---|
+| Virtual | 5 x 40px = 200px | y+0 odd toggle, y+40 odd brightness, y+80 odd temperature (dual) / empty (single), y+120 even toggle (single) / empty (dual), y+160 even brightness (single) / empty (dual) |
+| Physical | 4 x 40px = 160px | y+0 odd Interpret+mqtt out, y+40 odd inject+Increment, y+80 even Interpret+mqtt out (single), y+120 even inject+Increment (single) |
+
+Each pair always allocates its full 200px / 160px block regardless of current dual/single state.
+
+Logs errors to `/home/pi/node_red_errors.log` (toggle via `ENABLE_LOGGING`).
+
+---
+
+### `EzamaRaspiConfig.py` — Reconfigure / Reset Tool (run manually, with caution)
+
+1. Discovers all hub devices by scanning for `{device_id} Physical` canvas tabs in `flows.json`
+2. Presents a numbered device selection menu (RPi1, WT32 Hubs, etc.)
+3. Reads current `dual_temp` by counting temperature sliders in that device's Node-RED group
+4. Asks for new `dual_temp` count (0 to max pairs)
+5. Warns which even-numbered lights will be removed/added
+6. Sends `/lights/{device_id}/dual/command` via MQTT (updates the device in memory and persists)
+7. Waits 2s, then **surgically edits** `flows.json` — only touches nodes for the affected pairs:
+   - **Increasing:** removes even-light nodes, adds temperature slider at reserved y position
+   - **Decreasing:** removes temperature slider, adds even-light nodes at reserved y positions
+8. Restarts Node-RED via `sudo systemctl restart nodered`
+
+Works for **RPi1 and all WT32 Hub devices** — same MQTT topic structure for both.
+**Does NOT wipe flows.json.** All other devices and all user wiring to odd lights are preserved.
+
+---
+
+### `restart.sh` — Daily Reboot Script
+
+Contains `sudo reboot`. Run via crontab approximately once per day. Drops all MQTT connections momentarily and restarts all `@reboot` cron services.
+
+---
+
+### `espota.py` — OTA Firmware Uploader (run on demand)
+
+Pushes compiled `.bin` firmware wirelessly to WT32 devices. OTA port: **3232**. OTA password: **otapassword**.
+
+```bash
+python3 espota.py -i <ESP_IP> -I <Host_IP> -p 3232 -P <Host_port> --auth=otapassword -f <firmware.bin>
+```
+
+---
+
+## Firmware (`E:\firmware\`)
+
+Each subdirectory contains `.ino` source file(s) and a compiled `.ino.wt32-eth01.bin`. All WT32 devices:
+- Connect via wired Ethernet (WT32-ETH01, LAN8720 PHY). No Wi-Fi.
+- Store `device_id` (8 alphanumeric chars) in EEPROM at offset 222. Read on every boot.
+- Respond to `ping` on `/system/broadcast` by publishing capabilities JSON to `/system/reporting`.
+- Respond to `restart` on `/system/broadcast` by rebooting after 10s.
+- Respond to `reset` on `/system/broadcast` by clearing EEPROM and rebooting.
+- Support OTA on port 3232, password `otapassword`.
+
+### `ezama.ino` — Shared Base Library (included in all sensor firmware)
+
+Provides `ezama_setup()` and `ezama_loop()` used by DS18B20, JSN-SR04T, NTC10K, and MotionSensor. Handles: EEPROM device_id read, Ethernet init, OTA setup, MQTT broker failover (`192.168.99.1` -> `192.168.99.10` -> `192.168.6.97`), system-wide `restart`/`reset` commands, MQTT keepalive.
+
+### `WT32Hub1.2` — Light + Switch Hub
+
+Mirrors `rpi_switch_light_mqtt2.py` but runs standalone on a WT32-ETH01. Key differences from the Pi script:
+
+- PCA9685 at I2C SDA=GPIO14, SCL=GPIO15; **12-bit resolution (0-4095)** (Pi uses 16-bit 0-65535)
+- Button muxes: MUX1=GPIO5, MUX2=GPIO2; select: GPIO12, 4, 32, 33
+- `dual_temp` persisted to **EEPROM offset 220** (Pi rewrites its source file instead)
+- MQTT broker: hardcoded `192.168.99.1:1883` — no fallover (unlike sensor firmware)
+- `device_id` defaults to `WT321` if EEPROM is invalid
+- Publishes debug strings to `/system/debug`
+- **Temperature: 0 = 2700K full (low Kelvin), 255 = 6500K full (high Kelvin)**
+- **Kelvin language note:** Ben uses Kelvin values literally � higher K = "warmer" in his language. 6500K is "warmer" than 2700K. This is opposite to retail/vernacular usage where 2700K = "warm white". Odd channel (e.g. L11) drives 2700K; even channel (e.g. L12) drives 6500K. (same as Pi — the header comment in the .ino is wrong about this)
+- Subscribes to `/lights/{device_id}/dual/command` — **same topic as the Pi**
+
+### `EthDS18B20-1.2` — DS18B20 Digital Temperature Sensor
+
+- 1-Wire on GPIO33. Reads and publishes every 6s.
+- Publishes to `/sensors/{device_id}/DS18B20/data` (degrees C)
+- Reporting JSON sensor type: `DS18B20`, field: `temperature_c`, range: -55 to 125
+
+### `EthJSNSR04T-1.2` — JSN-SR04T Waterproof Ultrasonic Water-Level Sensor
+
+- TRIG=GPIO32, ECHO=GPIO33. Interrupt-based pulse measurement.
+- On startup, runs a self-test sequence (GPIO output test, GND/3.3V input test, loopback) before entering normal operation. Debug output during test goes to `/debug/{device_id}/test`.
+- Normal operation: averages 3 pulses every ~5s. Reports distance from sensor to water surface.
+- Publishes to `/sensors/{device_id}/jsn-sr04t/data` (float cm, or `-1` for out-of-range/no echo). Valid range: 20-700cm.
+- `TANK_HEIGHT` constant (default 200cm) sets gauge max — adjust in source for your tank.
+
+### `EthNTC10K-1.2` — NTC 10K Thermistor Temperature Sensor
+
+- Analog on GPIO36 (12-bit ADC). Uses Steinhart-Hart equation for conversion.
+- Publishes to `/sensors/{device_id}/ntc/data` (degrees C)
+- **Built-in thermostat:** publishes `on`/`off` to `{device_id}/1` when temperature crosses setpoint (3-degree hysteresis). Setpoint stored in EEPROM offset 220; updatable via MQTT topic `{device_id}/set_temp1` (integer payload, persisted to EEPROM).
+- Reporting JSON sensor type: `ntc`, field: `temperature_c`, range: -10 to 100
+
+### `EthMotionSensor-1.2` — RCWL-0516 Microwave Motion Sensor
+
+- Reads RCWL-0516 on GPIO12.
+- Publishes `on`/`off` to `/switches/{device_id}/S1/action` on state change and every 6s.
+- Reporting JSON: `switches: 1` — so `auto_config.py` adds an `mqtt in` node for `S1` in Node-RED Physical Links, ready to wire to a light or other action.
+
+### `initialize_WT32-2` — One-Time EEPROM Device ID Writer
+
+Used to provision a new WT32 device with its unique ID before deploying production firmware:
+1. Set `NEW_DEVICE_ID` in source (exactly 8 alphanumeric chars)
+2. Flash to device — it writes the ID to EEPROM offset 222 on boot
+3. Flash the production firmware — it reads the ID from EEPROM
+
+**Note:** `device_id` must be exactly 8 chars. Hub firmware validates this and falls back to `WT321` if invalid.
+
+---
+
+## EEPROM Map (WT32 devices)
+
+| Offset | Contents | Notes |
+|---|---|---|
+| 220 | `DUAL_TEMP_LIGHTS` (Hub) / thermostat setpoint (NTC10K) | 1 byte; 0-6 for Hub |
+| 222-229 | `device_id` | 8 ASCII alphanumeric chars |
+| 231 | OTA password length | 8-63 |
+| 240-302 | OTA password | up to 63 bytes |
+
+---
+
+## Hardware Summary
+
+| Component | Device | Detail |
+|---|---|---|
+| PWM controller (Pi) | PCA9685 | I2C SCL=GPIO3, SDA=GPIO2; 1000Hz; **16-bit** (0-65535); channels 1-12 |
+| PWM controller (WT32 Hub) | PCA9685 | I2C SDA=GPIO14, SCL=GPIO15; 1000Hz; **12-bit** (0-4095); channels 1-12 |
+| Button muxes (Pi) | 74HC4067 x2 | Select: GPIO20-23; MUX1 out: GPIO26 (buttons 0-15); MUX2 out: GPIO27 (buttons 16-31) |
+| Button muxes (WT32 Hub) | 74HC4067 x2 | Select: GPIO12,4,32,33; MUX1 out: GPIO5 (buttons 0-15); MUX2 out: GPIO2 (buttons 16-31) |
+| Temperature (digital) | DS18B20 | 1-Wire on GPIO33 |
+| Water level | JSN-SR04T | TRIG=GPIO32, ECHO=GPIO33 |
+| Temperature (analog) | NTC 10K thermistor | ADC on GPIO36 |
+| Motion | RCWL-0516 | Digital on GPIO12 |
+| Network (WT32) | LAN8720 | Wired Ethernet only. No Wi-Fi. |
+| MQTT broker | Mosquitto | Pi: `127.0.0.1:1883`; WT32 primary: `192.168.99.1:1883` |
