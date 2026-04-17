@@ -388,8 +388,8 @@ void update_light_pwm(int light_id) {
     float t_frac = temperature[light_id] / 255.0;
     int duty1 = int(onOff[light_id] * b_frac * t_frac * max_duty);  // 6500K
     int duty2 = int(onOff[light_id] * b_frac * (1.0 - t_frac) * max_duty);  // 2700K
-    pwm.setPWM(light_id, 0, duty1);
-    pwm.setPWM(light_id + 1, 0, duty2);
+    pwm.setPWM(light_id, 0, duty2);
+    pwm.setPWM(light_id + 1, 0, duty1);
     debugPublish("Dual L" + String(light_id) + ": duty1=" + String(duty1) + ", duty2=" + String(duty2));
   } else {
     int duty = int(onOff[light_id] * (brightness[light_id] / 100.0) * max_duty);
