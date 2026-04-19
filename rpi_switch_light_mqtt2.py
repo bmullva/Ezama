@@ -61,6 +61,8 @@ payloads:
 - Temperature note: Value 0 = warm (2700K/full 2700K channel), 255 = cool (6500K/full 6500K channel), based on Kelvin scale (higher K = cooler light).
 """
 
+import os
+import re
 import RPi.GPIO as GPIO
 import time
 import json
@@ -115,6 +117,7 @@ MQTT_PORT = 1883
 MQTT_TOPIC_LIGHT = f"/lights/{DEVICE_ID}/+/command"
 MQTT_TOPIC_BROADCAST = "/system/broadcast"
 MQTT_TOPIC_REPORTING = "/system/reporting"
+MQTT_TOPIC_DUAL_COMMAND = f"/lights/{DEVICE_ID}/dual/command"
 
 # Light states (size 13 to handle L1-L12, index 0 unused)
 onOff = [0] * (LIGHT_CIRCUITS + 1)
@@ -151,6 +154,7 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
         client.subscribe(MQTT_TOPIC_LIGHT)
         client.subscribe(MQTT_TOPIC_BROADCAST)
+        client.subscribe(MQTT_TOPIC_DUAL_COMMAND)
     else:
         logging.error(f"Connection failed: {reason_code}")
 
@@ -160,6 +164,8 @@ def on_message(client, userdata, msg, properties=None):
     logging.info(f"Received message on {topic}: {payload}")
     if topic == MQTT_TOPIC_BROADCAST and payload == "ping":
         send_ping_response()
+    elif topic == MQTT_TOPIC_DUAL_COMMAND:
+        handle_dual_command(payload)
     elif topic.startswith(f"/lights/{DEVICE_ID}/"):
         try:
             light_id_str = topic.split("/")[-2][1:]  # Extract light number string (e.g., '1' from 'L1')
@@ -169,6 +175,36 @@ def on_message(client, userdata, msg, properties=None):
             logging.error(f"Invalid light_id format in topic {topic}: {e}")
         except Exception as e:
             logging.error(f"Error handling light command on {topic}: {e}")
+
+def handle_dual_command(payload):
+    global DUAL_TEMP_LIGHTS
+    try:
+        value = int(payload.strip())
+    except ValueError:
+        logging.error(f"Invalid dual_temp command payload: {payload}")
+        return
+    if not (0 <= value <= 6):
+        logging.error(f"dual_temp value out of range: {value}")
+        return
+    DUAL_TEMP_LIGHTS = value
+    CONFIG["lights"]["dual_temp"] = value
+    _persist_dual_temp(value)
+    logging.info(f"dual_temp updated to {value}")
+
+def _persist_dual_temp(value):
+    path = os.path.abspath(__file__)
+    try:
+        with open(path, "r") as f:
+            text = f.read()
+        new_text = re.sub(r'("dual_temp"\s*:\s*)\d+', lambda m: f'{m.group(1)}{value}', text)
+        if new_text == text:
+            logging.warning("dual_temp persist: pattern not found in script file")
+            return
+        with open(path, "w") as f:
+            f.write(new_text)
+        logging.info(f"Persisted dual_temp={value} to {path}")
+    except Exception as e:
+        logging.error(f"Failed to persist dual_temp: {e}")
 
 def send_ping_response():
     ip_address = get_ip_address()
