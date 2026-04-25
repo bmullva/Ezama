@@ -7,7 +7,7 @@
 #   bash ezama_setup.sh [--wifi-ssid <ssid> --wifi-password <pass>] [--tailscale <auth-key>]
 #
 # Bootstrap on a fresh Pi (once SSH is reachable):
-#   curl -sL https://raw.githubusercontent.com/bmullva/Ezama/master/ezama_setup.sh | bash -s -- --wifi-ssid MyNetwork --wifi-password secret
+#   curl -sL https://raw.githubusercontent.com/bmullva/Ezama/main/ezama_setup.sh | bash -s -- --wifi-ssid MyNetwork --wifi-password secret
 
 set -e
 
@@ -89,7 +89,8 @@ echo "[7/10] Cloning Ezama repository..."
 if [ -d "$EZAMA_DIR/.git" ]; then
   git -C "$EZAMA_DIR" pull
 else
-  git clone "$EZAMA_REPO" "$EZAMA_DIR"
+  rm -rf "$EZAMA_DIR"
+  git clone -b main "$EZAMA_REPO" "$EZAMA_DIR"
 fi
 echo "sudo reboot" > "$EZAMA_DIR/restart.sh"
 chmod +x "$EZAMA_DIR/restart.sh"
