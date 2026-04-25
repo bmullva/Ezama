@@ -170,8 +170,8 @@ fi
 # Enable and start network services
 sudo systemctl unmask hostapd
 sudo systemctl enable hostapd dnsmasq
-sudo systemctl restart dnsmasq
-sudo systemctl restart hostapd
+sudo systemctl restart dnsmasq || echo "    WARNING: dnsmasq restart failed — will come up correctly after reboot"
+sudo systemctl restart hostapd || echo "    WARNING: hostapd restart failed — will come up correctly after reboot"
 
 echo "[9/10] Installing Node-RED flows..."
 mkdir -p /home/pi/.node-red
