@@ -38,7 +38,7 @@ echo "[2/10] Enabling I2C..."
 sudo raspi-config nonint do_i2c 0
 
 echo "[3/10] Installing mosquitto, hostapd, dnsmasq..."
-sudo apt-get install -y mosquitto mosquitto-clients hostapd dnsmasq
+sudo apt-get install -y mosquitto mosquitto-clients hostapd dnsmasq python3-pip
 sudo tee /etc/mosquitto/mosquitto.conf > /dev/null <<'MQTTCONF'
 persistence true
 persistence_location /var/lib/mosquitto/
