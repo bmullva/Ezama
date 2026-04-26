@@ -150,7 +150,7 @@ After=hostapd.service
 Requires=hostapd.service
 [Service]
 Type=oneshot
-ExecStart=/sbin/ip addr add 192.168.98.1/24 dev wlan0
+ExecStart=/bin/bash -c 'sleep 3 && /sbin/ip addr add 192.168.98.1/24 dev wlan0 2>/dev/null || true'
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
