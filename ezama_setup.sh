@@ -114,7 +114,7 @@ sudo sed -i 's|#DAEMON_CONF=""|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/de
 sudo tee /etc/dnsmasq.d/ezama-dhcp.conf > /dev/null <<'DNSMASQCONF'
 # DHCP for wlan0 AP and eth0 wired subnets
 interface=wlan0,eth0
-bind-interfaces
+bind-dynamic
 no-resolv
 log-dhcp
 
@@ -140,17 +140,22 @@ sudo nmcli connection add type ethernet \
   ipv4.route-metric 100 \
   ipv6.method ignore
 
-# NetworkManager: wlan0 static 192.168.98.1/24 (NM sets IP; hostapd runs the AP)
+# wlan0: tell NM to leave it alone; hostapd controls the radio; systemd sets the IP
 sudo nmcli connection delete wlan0-ap-static 2>/dev/null || true
-sudo nmcli connection add type wifi \
-  con-name wlan0-ap-static \
-  ifname wlan0 \
-  ssid dummy-ap \
-  802-11-wireless.mode infrastructure \
-  ipv4.addresses 192.168.98.1/24 \
-  ipv4.method manual \
-  ipv6.method ignore \
-  connection.autoconnect-priority 100
+sudo nmcli device set wlan0 managed no 2>/dev/null || true
+sudo tee /etc/systemd/system/wlan0-static-ip.service > /dev/null <<'WLAN0SVC'
+[Unit]
+Description=Set static IP on wlan0 AP interface
+After=hostapd.service
+Requires=hostapd.service
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip addr add 192.168.98.1/24 dev wlan0
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+WLAN0SVC
+sudo systemctl enable wlan0-static-ip.service
 
 # NetworkManager: wlan1 client (upstream WiFi internet)
 if [ -n "$WIFI_SSID" ]; then
