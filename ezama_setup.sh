@@ -175,6 +175,14 @@ else
   echo "    WARNING: --wifi-ssid not provided. wlan1 (internet) not configured."
 fi
 
+# hostapd drop-in: force wlan0 into AP mode before hostapd starts
+# (brcmfmac leaves wlan0 in managed mode; hostapd can't switch it on its own)
+sudo mkdir -p /etc/systemd/system/hostapd.service.d
+sudo tee /etc/systemd/system/hostapd.service.d/pre-ap-mode.conf > /dev/null <<'HOSTAPDDI'
+[Service]
+ExecStartPre=/bin/bash -c 'ip link set wlan0 down && iw dev wlan0 set type __ap && ip link set wlan0 up'
+HOSTAPDDI
+
 # Enable and start network services
 sudo systemctl unmask hostapd
 sudo systemctl enable hostapd dnsmasq
