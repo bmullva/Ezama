@@ -82,9 +82,9 @@ cd /home/pi
 
 echo "[6/10] Installing Python packages..."
 pip3 install --break-system-packages \
-  adafruit-circuitpython-pca9685 adafruit-blinka RPi.GPIO smbus2 paho-mqtt 2>/dev/null || \
+  adafruit-circuitpython-pca9685 adafruit-blinka RPi.GPIO smbus2 paho-mqtt netifaces 2>/dev/null || \
 pip3 install \
-  adafruit-circuitpython-pca9685 adafruit-blinka RPi.GPIO smbus2 paho-mqtt
+  adafruit-circuitpython-pca9685 adafruit-blinka RPi.GPIO smbus2 paho-mqtt netifaces
 
 echo "[7/10] Cloning Ezama repository..."
 if [ -d "$EZAMA_DIR/.git" ]; then
