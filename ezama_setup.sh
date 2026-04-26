@@ -34,8 +34,9 @@ echo "[1/10] Updating system packages..."
 sudo apt-get update -y
 sudo apt-get upgrade -y
 
-echo "[2/10] Enabling I2C..."
+echo "[2/10] Enabling I2C and setting WiFi country..."
 sudo raspi-config nonint do_i2c 0
+sudo raspi-config nonint do_wifi_country US
 
 echo "[3/10] Installing mosquitto, hostapd, dnsmasq..."
 sudo apt-get install -y mosquitto mosquitto-clients hostapd dnsmasq python3-pip git
