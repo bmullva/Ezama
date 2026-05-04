@@ -200,7 +200,7 @@ else
 fi
 
 echo "[10/10] Configuring crontab..."
-(crontab -l 2>/dev/null | grep -v 'Ezama\|restart.sh'; printf '0 2 * * * /home/pi/Ezama/restart.sh\n@reboot sleep 45 && /usr/bin/env python3 /home/pi/Ezama/rpi_switch_light_mqtt2.py\n@reboot sleep 90 && /usr/bin/env python3 /home/pi/Ezama/auto_config.py\n') | crontab -
+(crontab -l 2>/dev/null | grep -v 'Ezama\|restart.sh' || true; printf '0 2 * * * /home/pi/Ezama/restart.sh\n@reboot sleep 45 && /usr/bin/env python3 /home/pi/Ezama/rpi_switch_light_mqtt2.py\n@reboot sleep 90 && /usr/bin/env python3 /home/pi/Ezama/auto_config.py\n') | crontab -
 
 if [ -n "$TAILSCALE_KEY" ]; then
   echo "[+] Installing Tailscale..."
