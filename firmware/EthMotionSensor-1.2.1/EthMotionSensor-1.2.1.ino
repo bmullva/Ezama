@@ -38,6 +38,8 @@ void publish_reporting_json() {
   state_json["lights"] = "";
   state_json["switches"] = 1;
   JsonArray sensors = state_json.createNestedArray("sensors");
+  JsonObject sensor = sensors.createNestedObject();
+  sensor["type"] = "motion";
   serializeJson(state_json, output);
   output.toCharArray(sj, 1024);
   mqttClient.publish(topic.c_str(), sj);
